@@ -24,12 +24,24 @@ One-liner, if you would rather not keep the checkout around:
 gh repo clone mfahad1/opencode-config /tmp/occ && /tmp/occ/install.sh && rm -rf /tmp/occ
 ```
 
-No git and no `gh` on the box? Copy the four files to
-`~/.config/opencode/` by hand and add this to your shell rc:
+No git and no `gh` on the box? Copy the files to `~/.config/opencode/` by hand
+and add this to your shell rc:
 
 ```bash
+# ~/.zshrc or ~/.bashrc
 [ -f "$HOME/.config/opencode/oc-tier.sh" ] && source "$HOME/.config/opencode/oc-tier.sh"
 ```
+
+`oc-tier.sh` is bash syntax, so **fish** needs its own port instead — `oc-tier.fish`,
+sourced from `~/.config/fish/config.fish`:
+
+```fish
+test -f "$HOME/.config/opencode/oc-tier.fish"; and source "$HOME/.config/opencode/oc-tier.fish"
+```
+
+`install.sh` wires zsh, bash and fish automatically. Sourcing `oc-tier.sh` from fish
+does not work: fish cannot parse it, so `oc-tier-refresh` and the `opencode` wrapper
+never get defined and `OPENCODE_CONFIG` stays unset (you silently stay on free models).
 
 Open a new shell, then:
 
