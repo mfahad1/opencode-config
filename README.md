@@ -45,8 +45,8 @@ never get defined and `OPENCODE_CONFIG` stays unset (you silently stay on free m
 
 On a machine with no shell rc at all — a fresh macOS account ships no `~/.zshrc` —
 the installer creates the rc for your login shell (`$SHELL`) rather than skipping.
-It also creates `~/.local/bin` for `oc-doctor` if missing, and warns when that
-directory is not on your `PATH`.
+It also creates `~/.local/bin` for `oc-doctor` if missing, and adds that directory
+to your `PATH` in the same rc when it is not already there.
 
 Open a new shell, then:
 

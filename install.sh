@@ -85,9 +85,32 @@ mkdir -p "$HOME/.local/bin"
 cp "$SRC/bin/oc-doctor" "$HOME/.local/bin/oc-doctor"
 chmod +x "$HOME/.local/bin/oc-doctor"
 say "installed oc-doctor to ~/.local/bin"
+
+# Installing a binary into a directory the shell cannot search is useless, so
+# put it on PATH too. Separate marker: an rc wired by an older run still needs
+# this, and a machine that already has the directory on PATH is left alone.
+PATH_MARKER='# opencode: oc-doctor on PATH'
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+FISH_PATH_LINE='fish_add_path "$HOME/.local/bin"'
+
+add_path_line() { # $1=rc file, $2=line to append
+  if [ ! -e "$1" ]; then return 0; fi
+  if grep -qF "$PATH_MARKER" "$1" 2>/dev/null; then
+    say "already on PATH via $(basename "$1")"
+    return 0
+  fi
+  printf '\n%s\n%s\n' "$PATH_MARKER" "$2" >> "$1"
+  say "added ~/.local/bin to PATH in $(basename "$1")"
+}
+
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
-  *) say "NOTE: ~/.local/bin is not on your PATH; add it or oc-doctor will not be found" ;;
+  *)
+    for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
+      add_path_line "$rc" "$PATH_LINE"
+    done
+    add_path_line "$FISH_RC" "$FISH_PATH_LINE"
+    ;;
 esac
 
 rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-tier"
