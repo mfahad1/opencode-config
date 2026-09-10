@@ -31,12 +31,35 @@ _oc_tier() {
   printf '%s' "$t"
 }
 
+# Per-machine overrides. Model availability is regional, so a machine where a
+# model is geo-blocked can override just that role without forking the config.
+# Untracked and never installed over; echoes the config to actually use.
+_oc_local="$_oc_dir/opencode.local.jsonc"
+_oc_merged="${XDG_CACHE_HOME:-$HOME/.cache}/opencode-merged.json"
+
+_oc_config() { # $1 = base config
+  if [ -s "$_oc_local" ] && [ -x "$_oc_dir/oc-merge" ]; then
+    if "$_oc_dir/oc-merge" "$1" "$_oc_local" "$_oc_merged"; then
+      printf '%s' "$_oc_merged"; return
+    fi
+    echo "oc-tier: ignoring $(basename "$_oc_local")" >&2
+  fi
+  printf '%s' "$1"
+}
+
 case "$(_oc_tier)" in
-  paid) export OPENCODE_CONFIG="$_oc_dir/opencode.go.jsonc" ;;
-  *)    unset OPENCODE_CONFIG ;;
+  paid) export OPENCODE_CONFIG="$(_oc_config "$_oc_dir/opencode.go.jsonc")" ;;
+  *)    _oc_free="$(_oc_config "$_oc_dir/opencode.jsonc")"
+        # No override: leave it unset so the global opencode.jsonc wins as before.
+        if [ "$_oc_free" = "$_oc_dir/opencode.jsonc" ]; then
+          unset OPENCODE_CONFIG
+        else
+          export OPENCODE_CONFIG="$_oc_free"
+        fi
+        unset _oc_free ;;
 esac
 
-oc-tier-refresh() { rm -f "$_oc_cache"; source "$_oc_dir/oc-tier.sh"; echo "tier: $(cat "$_oc_cache") | OPENCODE_CONFIG=${OPENCODE_CONFIG:-<free/global>}"; }
+oc-tier-refresh() { rm -f "$_oc_cache" "$_oc_merged"; source "$_oc_dir/oc-tier.sh"; echo "tier: $(cat "$_oc_cache") | OPENCODE_CONFIG=${OPENCODE_CONFIG:-<free/global>}"; }
 
 # Wrapper so a bare `opencode` always routes correctly.
 opencode() { source "$_oc_dir/oc-tier.sh"; command opencode "$@"; }

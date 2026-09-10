@@ -21,6 +21,17 @@ for f in opencode.jsonc opencode.go.jsonc oc-tier.sh oc-tier.fish; do
 done
 chmod +x "$CFG/oc-tier.sh"
 
+# oc-tier.sh/.fish call this to layer opencode.local.jsonc onto the base config.
+cp "$SRC/bin/oc-merge" "$CFG/oc-merge"
+chmod +x "$CFG/oc-merge"
+say "installed oc-merge"
+
+# opencode.local.jsonc is this machine's, never ours: it is deliberately absent
+# from the copy loop above so a re-run cannot clobber regional model overrides.
+if [ -s "$CFG/opencode.local.jsonc" ]; then
+  say "kept your opencode.local.jsonc (overrides still applied)"
+fi
+
 # Wire into whichever shell rc exists. Idempotent by marker.
 # oc-tier.sh is bash syntax and fish cannot parse it, so fish gets its own port.
 LINE='[ -f "$HOME/.config/opencode/oc-tier.sh" ] && source "$HOME/.config/opencode/oc-tier.sh"'

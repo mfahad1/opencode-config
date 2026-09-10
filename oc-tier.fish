@@ -47,19 +47,46 @@ function _oc_tier
     printf '%s' $t
 end
 
+# Per-machine overrides. Model availability is regional, so a machine where a
+# model is geo-blocked can override just that role without forking the config.
+# Untracked and never installed over; echoes the config to actually use.
+if test -n "$XDG_CACHE_HOME"
+    set -g _oc_merged $XDG_CACHE_HOME/opencode-merged.json
+else
+    set -g _oc_merged $HOME/.cache/opencode-merged.json
+end
+set -g _oc_local $_oc_dir/opencode.local.jsonc
+
+function _oc_config # $argv[1] = base config
+    if test -s "$_oc_local"; and test -x "$_oc_dir/oc-merge"
+        if $_oc_dir/oc-merge $argv[1] $_oc_local $_oc_merged
+            printf '%s' $_oc_merged
+            return
+        end
+        echo "oc-tier: ignoring "(basename $_oc_local) >&2
+    end
+    printf '%s' $argv[1]
+end
+
 function _oc_apply
     switch (_oc_tier)
         case paid
-            set -gx OPENCODE_CONFIG $_oc_dir/opencode.go.jsonc
+            set -gx OPENCODE_CONFIG (_oc_config $_oc_dir/opencode.go.jsonc)
         case '*'
-            set -e OPENCODE_CONFIG
+            set -l free (_oc_config $_oc_dir/opencode.jsonc)
+            # No override: leave it unset so the global opencode.jsonc wins as before.
+            if test "$free" = "$_oc_dir/opencode.jsonc"
+                set -e OPENCODE_CONFIG
+            else
+                set -gx OPENCODE_CONFIG $free
+            end
     end
 end
 
 _oc_apply
 
 function oc-tier-refresh
-    rm -f $_oc_cache
+    rm -f $_oc_cache $_oc_merged
     _oc_apply
     if set -q OPENCODE_CONFIG
         echo "tier: "(cat $_oc_cache)" | OPENCODE_CONFIG=$OPENCODE_CONFIG"

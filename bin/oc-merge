@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""Deep-merge a per-machine override onto the shared OpenCode config.
+
+    oc-merge BASE LOCAL OUT
+
+BASE is the tracked config (opencode.jsonc / opencode.go.jsonc), LOCAL is the
+machine's untracked opencode.local.jsonc, OUT is the generated file that
+OPENCODE_CONFIG points at. Objects merge key-by-key; scalars and arrays in
+LOCAL replace BASE outright.
+
+Exists because model availability is regional: the same repo has to drive a
+machine where a given free model is geo-blocked without forking the config.
+
+Rewrites OUT only when an input is newer, so it is cheap to call on every
+`opencode` invocation. Exits non-zero and writes nothing on a malformed
+LOCAL, leaving the caller to fall back to BASE.
+"""
+import json
+import os
+import re
+import sys
+
+
+def load(path):
+    with open(path) as fh:
+        text = fh.read()
+    # Same comment handling as oc-doctor: whole-line // only.
+    return json.loads(re.sub(r'^\s*//.*$', '', text, flags=re.M))
+
+
+def merge(base, override):
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def main():
+    if len(sys.argv) != 4:
+        sys.exit(__doc__)
+    base, local, out = sys.argv[1:4]
+
+    if not os.path.exists(base):
+        print(f"oc-merge: no base config at {base}", file=sys.stderr)
+        return 1
+    if not os.path.exists(local):
+        return 1
+
+    # Up to date already.
+    if os.path.exists(out):
+        newest = max(os.path.getmtime(base), os.path.getmtime(local))
+        if os.path.getmtime(out) >= newest:
+            return 0
+
+    try:
+        merged = merge(load(base), load(local))
+    except (ValueError, OSError) as exc:
+        print(f"oc-merge: {os.path.basename(local)}: {exc}", file=sys.stderr)
+        return 1
+
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    tmp = out + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(merged, fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, out)  # atomic: never expose a half-written config
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

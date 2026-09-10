@@ -165,6 +165,44 @@ which are excluded here.
 | `oc-tier.sh` | Detector, `opencode` wrapper, `oc-tier-refresh` |
 | `bin/oc-doctor` | Verifies configured models work here |
 | `install.sh` | Idempotent installer with backups |
+| `bin/oc-merge` | Deep-merges `opencode.local.jsonc` onto the active tier config |
+
+## Different region? Override models per machine
+
+Model availability is regional and account-specific, so the same repo has to
+drive machines where different models work. `oc-doctor` flags the ones that
+fail here:
+
+```
+explore,scout,general   opencode/nemotron-3.5-lightning-free   GEO-BLOCKED  2s
+```
+
+Do **not** edit `~/.config/opencode/opencode.jsonc` — `install.sh` overwrites it
+from the repo on every run. Instead create an untracked override next to it:
+
+```jsonc
+// ~/.config/opencode/opencode.local.jsonc — this machine only
+{
+  "agent": {
+    "explore": { "model": "opencode/<something that works here>" },
+    "scout":   { "model": "opencode/<something that works here>" },
+    "general": { "model": "opencode/<something that works here>" }
+  }
+}
+```
+
+`opencode models` lists what your account can reach; `oc-doctor` tells you which
+of those actually answer from your region.
+
+The override is deep-merged onto whichever tier config is active, so you only
+name the roles you are changing — everything else is inherited, and the free/Go
+switch keeps working. `install.sh` never touches this file, and it is
+gitignored, so the repo stays the shared baseline across machines.
+
+Merging happens in `oc-merge`, which regenerates `~/.cache/opencode-merged.json`
+only when an input changes and points `OPENCODE_CONFIG` there. A malformed
+override is reported and ignored rather than breaking your shell. Remove the
+file to go back to the shared config.
 
 ## Uninstall
 
