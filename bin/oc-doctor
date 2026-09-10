@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Check that every model referenced by the active OpenCode config actually
+# works from THIS machine and account. Availability is region-dependent and
+# free endpoints rate-limit, so run this on each new machine.
+#
+#   oc-doctor            check the active config
+#   oc-doctor --go       force-check the paid config
+#   oc-doctor --free     force-check the free config
+set -uo pipefail
+
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+TIMEOUT="${OC_DOCTOR_TIMEOUT:-45}"
+
+case "${1:-}" in
+  --go)   FILE="$CFG/opencode.go.jsonc" ;;
+  --free) FILE="$CFG/opencode.jsonc" ;;
+  *)      FILE="${OPENCODE_CONFIG:-$CFG/opencode.jsonc}" ;;
+esac
+
+[ -f "$FILE" ] || { echo "no config at $FILE"; exit 1; }
+command -v opencode >/dev/null || { echo "opencode not on PATH"; exit 1; }
+
+echo "config: $FILE"
+echo
+
+models=$(python3 - "$FILE" <<'PY'
+import json,re,sys
+t=open(sys.argv[1]).read()
+t=re.sub(r'^\s*//.*$','',t,flags=re.M)
+d=json.loads(t)
+# one entry per distinct model, listing every role that uses it
+from collections import OrderedDict
+bymodel=OrderedDict()
+def add(role,m):
+    if m: bymodel.setdefault(m,[]).append(role)
+add('default',d.get('model'))
+add('small',d.get('small_model'))
+for role,cfg in (d.get('agent') or {}).items():
+    add(role,cfg.get('model'))
+for m,roles in bymodel.items(): print(f'{",".join(roles)}\t{m}')
+PY
+)
+
+fails=0
+while IFS=$'\t' read -r role model; do
+  [ -n "$model" ] || continue
+  printf '%-34s %-42s ' "$role" "$model"
+  s=$(date +%s)
+  out=$(perl -e 'alarm shift; exec @ARGV' "$TIMEOUT" opencode run -m "$model" "Say OK" </dev/null 2>&1 | tr -d '\r')
+  e=$(date +%s); d=$((e-s))
+  if   echo "$out" | grep -qi 'not available in your country'; then echo "GEO-BLOCKED  ${d}s"; fails=$((fails+1))
+  elif echo "$out" | grep -qi 'error'; then echo "ERROR        ${d}s"; fails=$((fails+1))
+  elif echo "$out" | grep -q 'OK'; then echo "ok           ${d}s"
+  else echo "TIMEOUT      ${d}s"; fails=$((fails+1))
+  fi
+done <<< "$models"
+
+echo
+total=$(printf '%s\n' "$models" | grep -c .)
+if [ "$fails" -gt 0 ]; then
+  if [ "$fails" -eq "$total" ] && case "$FILE" in *opencode.go.jsonc) true;; *) false;; esac; then
+    echo "Every Go model failed, which is expected with no subscription."
+    echo "Subscribe at https://opencode.ai/auth, then run: oc-tier-refresh"
+  else
+    echo "$fails of $total model(s) unusable here. Edit $FILE and swap them."
+    echo "List what this account can reach:  opencode models"
+  fi
+  exit 1
+fi
+echo "all models reachable."

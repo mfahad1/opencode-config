@@ -1,0 +1,34 @@
+{
+  // PAID TIER — used only when an OpenCode Go subscription is detected.
+  // Selected via OPENCODE_CONFIG by ~/.config/opencode/oc-tier.sh.
+  //
+  // Go caps are PER MODEL, not one shared pool, so routing by task draws
+  // from independent allowances instead of draining the smallest one.
+  //   glm-5.3        $15/mo cap  ~1,080 req    strongest, spend it on thinking
+  //   kimi-k2.7-code $60/mo cap  ~6,750 req    code-tuned daily driver
+  //   glm-5.3-flash  $60/mo cap  ~31,580 req   quick edits
+  //   longcat-2.0    $60/mo cap  ~57,200 req   cheap cache, good for prose
+  //   deepseek-v4-flash $30/mo   ~65,000 req   half price off-peak
+  //   mimo-v2.5      $60/mo cap  ~150,400 req  weak; machinery only
+  "$schema": "https://opencode.ai/config.json",
+
+  "model": "opencode-go/kimi-k2.7-code",
+  "small_model": "opencode-go/mimo-v2.5",
+
+  "agent": {
+    "plan":    { "model": "opencode-go/glm-5.3" },
+    "build":   { "model": "opencode-go/kimi-k2.7-code" },
+    "explore": { "model": "opencode-go/glm-5.3-flash" },
+    "scout":   { "model": "opencode-go/deepseek-v4-flash" },
+    "general": { "model": "opencode-go/glm-5.3-flash" },
+
+    "write": {
+      "description": "Prose, docs, commit messages, email, README and other writing. No code edits.",
+      "mode": "primary",
+      "model": "opencode-go/longcat-2.0",
+      "temperature": 0.7,
+      "permission": { "edit": "ask", "bash": "deny" },
+      "prompt": "You are a writing assistant. Produce clear, concrete prose. No filler, no throat-clearing, no bullet lists unless the content is genuinely a list."
+    }
+  }
+}

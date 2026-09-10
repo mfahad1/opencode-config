@@ -1,0 +1,39 @@
+{
+  // FREE TIER — safe default. Works with no subscription and no API key.
+  // The `opencode` wrapper in oc-tier.sh swaps to opencode.go.jsonc once a
+  // Go subscription is detected.
+  //
+  // WARNING: every free model here logs or trains on your prompts.
+  // Throwaway work only. Never employer-owned or confidential code.
+  //
+  // Measured from this machine on 2026-09-10:
+  //   big-pickle                   OK   11s   most capable of the four
+  //   mimo-v2.5-free               OK    9s   fastest, weakest
+  //   ling-3.0-flash-fin-free      OK   22s   chattier, suits prose
+  //   nemotron-3.5-lightning-free  OK   fast
+  //   nemotron-3-ultra-free        TIMEOUT >75s   unusable
+  //   muse-spark-1.2 / 1.3         GEO-BLOCKED in Canada
+  // Free endpoints are rate-limited; rapid successive calls fail. Expected.
+  "$schema": "https://opencode.ai/config.json",
+
+  "model": "opencode/big-pickle",
+  "small_model": "opencode/mimo-v2.5-free",
+
+  "agent": {
+    // No stronger free model is reliably reachable, so plan shares build's.
+    "plan":    { "model": "opencode/big-pickle" },
+    "build":   { "model": "opencode/big-pickle" },
+    "explore": { "model": "opencode/nemotron-3.5-lightning-free" },
+    "scout":   { "model": "opencode/nemotron-3.5-lightning-free" },
+    "general": { "model": "opencode/nemotron-3.5-lightning-free" },
+
+    "write": {
+      "description": "Prose, docs, commit messages, email, README and other writing. No code edits.",
+      "mode": "primary",
+      "model": "opencode/ling-3.0-flash-fin-free",
+      "temperature": 0.7,
+      "permission": { "edit": "ask", "bash": "deny" },
+      "prompt": "You are a writing assistant. Produce clear, concrete prose. No filler, no throat-clearing, no bullet lists unless the content is genuinely a list."
+    }
+  }
+}
