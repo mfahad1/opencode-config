@@ -11,6 +11,17 @@ everything on the strongest model drains its allowance and leaves every other
 bucket untouched. Routing by task draws from independent allowances, so the
 same $10 goes considerably further.
 
+## Requires
+
+[opencode](https://opencode.ai) itself — this repo only configures it:
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+```
+
+That installs to `~/.opencode/bin`, which must be on your `PATH`. `install.sh`
+warns if the binary is missing or unreachable.
+
 ## Install
 
 ```bash

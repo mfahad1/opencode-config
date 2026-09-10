@@ -113,6 +113,18 @@ case ":$PATH:" in
     ;;
 esac
 
+# This repo ships config for opencode, not opencode itself. Say so plainly
+# rather than letting oc-doctor fail with a bare "opencode not on PATH".
+if ! command -v opencode >/dev/null 2>&1; then
+  if [ -x "$HOME/.opencode/bin/opencode" ]; then
+    say "WARNING: opencode is installed at ~/.opencode/bin but not on your PATH."
+    say "         Add it:  echo 'export PATH=\"\$HOME/.opencode/bin:\$PATH\"' >> ~/.zshrc"
+  else
+    say "WARNING: opencode is not installed; this repo only configures it."
+    say "         Install it:  curl -fsSL https://opencode.ai/install | bash"
+  fi
+fi
+
 rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-tier"
 
 echo
