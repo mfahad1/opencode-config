@@ -26,36 +26,69 @@ chmod +x "$CFG/oc-tier.sh"
 LINE='[ -f "$HOME/.config/opencode/oc-tier.sh" ] && source "$HOME/.config/opencode/oc-tier.sh"'
 FISH_LINE='test -f "$HOME/.config/opencode/oc-tier.fish"; and source "$HOME/.config/opencode/oc-tier.fish"'
 MARKER='# opencode model routing'
+FISH_RC="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
 wired=0
 
+# Append the source line, creating the rc if it does not exist yet. A fresh
+# macOS account ships no ~/.zshrc, so refusing to create one meant the
+# installer silently wired nothing.
 wire() { # $1=rc file, $2=line to append
-  [ -e "$1" ] || return 1
-  if grep -qF "$MARKER" "$1" 2>/dev/null; then
-    say "already wired: $(basename "$1")"; return 0
+  local bk=""
+  mkdir -p "$(dirname "$1")"
+  if [ ! -e "$1" ]; then
+    touch "$1"
+    say "created $(basename "$1")"
+  elif grep -qF "$MARKER" "$1" 2>/dev/null; then
+    say "already wired: $(basename "$1")"
+    wired=1
+    return 0
+  elif [ -s "$1" ]; then
+    cp "$1" "$1.bak-$STAMP"
+    bk=" (backup: $(basename "$1").bak-$STAMP)"
   fi
-  cp "$1" "$1.bak-$STAMP"
   printf '\n%s: picks free or Go models based on subscription\n%s\n' "$MARKER" "$2" >> "$1"
-  say "wired $(basename "$1") (backup: $(basename "$1").bak-$STAMP)"
+  say "wired $(basename "$1")$bk"
+  wired=1
 }
 
+# Wire every rc that already exists, so multi-shell machines all get routing.
 for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
-  wire "$rc" "$LINE" && wired=1
+  if [ -e "$rc" ]; then wire "$rc" "$LINE"; fi
 done
-
-FISH_RC="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
 if [ -e "$FISH_RC" ] || command -v fish >/dev/null 2>&1; then
-  mkdir -p "$(dirname "$FISH_RC")"; touch "$FISH_RC"
-  wire "$FISH_RC" "$FISH_LINE" && wired=1
+  wire "$FISH_RC" "$FISH_LINE"
 fi
 
-[ "$wired" -eq 1 ] || say "WARNING: no .zshrc, .bashrc or config.fish found; add this line yourself: $LINE"
-
-# Optional: put oc-doctor on PATH if ~/.local/bin exists
-if [ -d "$HOME/.local/bin" ]; then
-  cp "$SRC/bin/oc-doctor" "$HOME/.local/bin/oc-doctor"
-  chmod +x "$HOME/.local/bin/oc-doctor"
-  say "installed oc-doctor to ~/.local/bin"
+# Nothing to wire: create the rc for the login shell instead of giving up.
+if [ "$wired" -eq 0 ]; then
+  case "$(basename "${SHELL:-/bin/zsh}")" in
+    fish)
+      wire "$FISH_RC" "$FISH_LINE"
+      ;;
+    bash)
+      wire "$HOME/.bashrc" "$LINE"
+      # macOS login bash reads .bash_profile, never .bashrc.
+      if [ ! -e "$HOME/.bash_profile" ]; then
+        printf '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"\n' > "$HOME/.bash_profile"
+        say "created .bash_profile (sources .bashrc)"
+      fi
+      ;;
+    *)
+      wire "$HOME/.zshrc" "$LINE"
+      ;;
+  esac
 fi
+
+# Put oc-doctor on PATH. Create ~/.local/bin if needed: on a fresh machine it
+# does not exist, and skipping it left oc-doctor uninstalled with no warning.
+mkdir -p "$HOME/.local/bin"
+cp "$SRC/bin/oc-doctor" "$HOME/.local/bin/oc-doctor"
+chmod +x "$HOME/.local/bin/oc-doctor"
+say "installed oc-doctor to ~/.local/bin"
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) say "NOTE: ~/.local/bin is not on your PATH; add it or oc-doctor will not be found" ;;
+esac
 
 rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-tier"
 

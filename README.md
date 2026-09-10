@@ -43,6 +43,11 @@ test -f "$HOME/.config/opencode/oc-tier.fish"; and source "$HOME/.config/opencod
 does not work: fish cannot parse it, so `oc-tier-refresh` and the `opencode` wrapper
 never get defined and `OPENCODE_CONFIG` stays unset (you silently stay on free models).
 
+On a machine with no shell rc at all — a fresh macOS account ships no `~/.zshrc` —
+the installer creates the rc for your login shell (`$SHELL`) rather than skipping.
+It also creates `~/.local/bin` for `oc-doctor` if missing, and warns when that
+directory is not on your `PATH`.
+
 Open a new shell, then:
 
 ```bash
