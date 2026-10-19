@@ -36,6 +36,19 @@ Just run `opencode`. A wrapper picks the right config for your tier.
 | `oc-doctor` | Test every configured model from this machine |
 | `opencode --agent write` | Writing agent: prose and docs, no shell access |
 
+### `oc-tier-refresh` vs `oc-doctor`
+
+| | `oc-tier-refresh` | `oc-doctor` |
+|---|---|---|
+| Job | Chooses models | Checks the models already chosen |
+| Tests | Ranked candidates, until each role has one that answers | Only the models in your current config |
+| On a failure | Skips it; the role gets the next model in line | Reports `TIMEOUT` / `GEO-BLOCKED` / `ERROR` |
+| Changes files | Yes: saves picks, re-checks free vs Go | No |
+| Speed | About 1–2 minutes | About 10–20 seconds per model |
+
+Use **refresh** for newer models, after subscribing, or when a model breaks.
+Use **doctor** for a quick check that the current setup still works.
+
 ## How models are picked
 
 `oc-tier-refresh` reads the live model list from [models.dev](https://models.dev)
