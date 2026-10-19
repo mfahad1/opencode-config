@@ -21,10 +21,13 @@ for f in opencode.jsonc opencode.go.jsonc oc-tier.sh oc-tier.fish; do
 done
 chmod +x "$CFG/oc-tier.sh"
 
-# oc-tier.sh/.fish call this to layer opencode.local.jsonc onto the base config.
-cp "$SRC/bin/oc-merge" "$CFG/oc-merge"
-chmod +x "$CFG/oc-merge"
-say "installed oc-merge"
+# oc-tier.sh/.fish call these: oc-pick chooses current models at refresh time,
+# oc-merge layers those picks and opencode.local.jsonc onto the base config.
+for f in oc-merge oc-pick; do
+  cp "$SRC/bin/$f" "$CFG/$f"
+  chmod +x "$CFG/$f"
+  say "installed $f"
+done
 
 # opencode.local.jsonc is this machine's, never ours: it is deliberately absent
 # from the copy loop above so a re-run cannot clobber regional model overrides.
@@ -140,7 +143,7 @@ rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/opencode-tier"
 
 echo
 echo "Done. Open a new shell, then:"
-echo "  oc-tier-refresh   # detect free vs Go and show which config is active"
+echo "  oc-tier-refresh   # detect free vs Go and pick the newest, strongest models"
 echo "  oc-doctor         # check the configured models actually work HERE"
 echo
 echo "Model availability is region- and account-dependent. Run oc-doctor on"

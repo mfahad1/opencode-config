@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Pick the newest, strongest models for a tier and write them as a config layer.
+
+    oc-pick free|go OUT [--probe]
+
+Reads the live catalogue from models.dev (the same source opencode itself
+uses), keeps the models this tier can actually use, ranks them, and writes
+OUT: a partial config holding only `model`, `small_model` and per-agent
+`model` keys. oc-merge layers it between the tracked base config and the
+machine's opencode.local.jsonc, so hand overrides still win.
+
+Exists because the tracked configs name models explicitly, and the catalogue
+churns weekly: free models are retired and renamed (mimo-v2.5-free became
+mimo-v2.6-flash-free), and nothing noticed until calls started failing.
+
+Ranking is a heuristic, not a benchmark:
+  - free: all cost $0, so newest release wins.
+  - go:   price is the best strength signal the catalogue offers, so the
+          priciest strong model wins, newest breaking ties (glm-5.3 over
+          glm-5.2). Fast models rank newest first regardless of price.
+Models are split into "fast" (flash/lite/mini/... by name) and "strong";
+plan/build/write take distinct strong models so they draw on separate Go
+caps and separate free rate limits, explore/scout/general take fast ones.
+
+--probe calls each pick once with `opencode run` and falls down the ranking
+when one is geo-blocked, errors or times out. Only meaningful for the tier
+the account can actually reach.
+
+Exits non-zero and leaves OUT untouched when the catalogue is unreachable.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+
+CATALOGUE = "https://models.dev/api.json"
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
+                     "opencode-models.json")
+CACHE_MAXAGE = 6 * 3600
+PROBE_TIMEOUT = int(os.environ.get("OC_DOCTOR_TIMEOUT", "45"))
+PROBE_TRIES = 4  # candidates per role before giving up and keeping the best-ranked
+
+# Whole dash-separated segments only, so "minimax" is not read as "mini".
+FAST = re.compile(r"(^|-)(flash|lite|mini|nano|lightning|tiny|luna|haiku|spark)(-|$)", re.I)
+# Contributor variants train on prompts; Go is chosen partly for no-training.
+SKIP = re.compile(r"contributor|vision-exp", re.I)
+
+STRONG_ROLES = ["plan", "build", "write"]
+FAST_ROLES = ["explore", "scout", "general"]
+
+
+def log(msg):
+    print(msg, file=sys.stderr)
+
+
+def catalogue():
+    fresh = os.path.exists(CACHE) and time.time() - os.path.getmtime(CACHE) < CACHE_MAXAGE
+    if not fresh:
+        try:
+            # models.dev 403s urllib's default User-Agent.
+            req = urllib.request.Request(CATALOGUE, headers={"User-Agent": "oc-pick"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = resp.read()
+            json.loads(data)
+            os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+            with open(CACHE + ".tmp", "wb") as fh:
+                fh.write(data)
+            os.replace(CACHE + ".tmp", CACHE)
+        except (OSError, ValueError) as exc:
+            if not os.path.exists(CACHE):
+                raise SystemExit(f"oc-pick: cannot fetch {CATALOGUE}: {exc}")
+            log(f"oc-pick: {CATALOGUE} unreachable, using cached catalogue")
+    with open(CACHE) as fh:
+        return json.load(fh)
+
+
+def reachable(provider):
+    """Model ids opencode lists for this account, or None if it cannot say."""
+    try:
+        out = subprocess.run(["opencode", "models", provider], capture_output=True,
+                             text=True, timeout=60).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    ids = {line.split("/", 1)[1] for line in out.splitlines()
+           if line.startswith(provider + "/")}
+    return ids or None
+
+
+def candidates(tier):
+    provider = "opencode-go" if tier == "go" else "opencode"
+    models = catalogue().get(provider, {}).get("models", {})
+    listed = reachable(provider)
+    out = []
+    for mid, m in models.items():
+        cost = m.get("cost") or {}
+        free = not cost.get("input") and not cost.get("output")
+        if m.get("status") == "deprecated" or not m.get("tool_call"):
+            continue
+        if SKIP.search(mid) or free != (tier == "free"):
+            continue
+        if listed is not None and mid not in listed:
+            continue
+        out.append({
+            "id": f"{provider}/{mid}",
+            "fast": bool(FAST.search(mid)),
+            "price": cost.get("output") or 0,
+            "date": m.get("release_date") or "",
+        })
+    # Strongest first. Free models are all $0, so this reduces to newest first.
+    out.sort(key=lambda c: (c["price"], c["date"]), reverse=True)
+    return out
+
+
+def probe(model):
+    try:
+        res = subprocess.run(["opencode", "run", "-m", model, "Say OK"], stdin=subprocess.DEVNULL,
+                             capture_output=True, text=True, timeout=PROBE_TIMEOUT)
+        out = res.stdout + res.stderr
+    except subprocess.TimeoutExpired:
+        return "timeout"
+    if "not available in your country" in out.lower():
+        return "geo-blocked"
+    if "error" in out.lower():
+        return "error"
+    return "ok" if "OK" in out else "no answer"
+
+
+def choose(pool, used, verify, bad):
+    """First model in ranked pool that is unused and passes the probe."""
+    fresh = [c["id"] for c in pool if c["id"] not in used] or [c["id"] for c in pool]
+    for model in fresh[:PROBE_TRIES] if verify else fresh[:1]:
+        if model in bad:
+            continue
+        if not verify:
+            return model
+        status = verify(model)
+        if status == "ok":
+            return model
+        bad.add(model)
+    return None
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    do_probe = "--probe" in sys.argv
+    if len(args) != 2 or args[0] not in ("free", "go"):
+        sys.exit(__doc__)
+    tier, out_path = args
+
+    ranked = candidates(tier)
+    strong = [c for c in ranked if not c["fast"]]
+    # Fast models are picked for speed, not depth, so a newer generation beats
+    # a pricier old one (gpt-6-luna over gpt-5.6-luna).
+    fast = sorted((c for c in ranked if c["fast"]), key=lambda c: c["date"], reverse=True)
+    if not strong or not fast:
+        raise SystemExit(f"oc-pick: catalogue has no usable {tier} models; keeping current picks")
+
+    cache = {}
+
+    def verify(model):
+        if model not in cache:
+            print(f"  probing {model:44} ", end="", file=sys.stderr, flush=True)
+            cache[model] = probe(model)
+            log(cache[model])
+        return cache[model]
+
+    bad, used, picks = set(), [], {}
+    for roles, pool in ((STRONG_ROLES, strong), (FAST_ROLES, fast)):
+        for role in roles:
+            model = choose(pool, used, verify if do_probe else None, bad)
+            # Everything failed: keep the base config's choice for this role.
+            if model:
+                picks[role] = model
+                used.append(model)
+
+    # Titles and summaries run constantly, so cheapest fast model, ideally its own.
+    # fast is already newest-first within a price, and sort is stable.
+    small_pool = sorted(fast, key=lambda c: c["price"])
+    small = choose(small_pool, used, verify if do_probe else None, bad)
+
+    layer = {}
+    if "build" in picks:
+        layer["model"] = picks["build"]
+    if small:
+        layer["small_model"] = small
+    layer["agent"] = {role: {"model": m} for role, m in picks.items()}
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path + ".tmp", "w") as fh:
+        json.dump(layer, fh, indent=2)
+        fh.write("\n")
+    os.replace(out_path + ".tmp", out_path)
+
+    for role in STRONG_ROLES + FAST_ROLES:
+        log(f"  {role:8} {picks.get(role, '(base config)')}")
+    log(f"  {'small':8} {small or '(base config)'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

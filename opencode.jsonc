@@ -14,10 +14,13 @@
   //   nemotron-3-ultra-free        TIMEOUT >75s   unusable
   //   muse-spark-1.2 / 1.3         GEO-BLOCKED in Canada
   // Free endpoints are rate-limited; rapid successive calls fail. Expected.
+  //
+  // These are fallbacks. oc-tier-refresh writes current picks to
+  // opencode.auto.json, which is layered on top (see bin/oc-pick).
   "$schema": "https://opencode.ai/config.json",
 
   "model": "opencode/big-pickle",
-  "small_model": "opencode/mimo-v2.5-free",
+  "small_model": "opencode/mimo-v2.6-flash-free",
 
   "agent": {
     // No stronger free model is reliably reachable, so plan shares build's.
@@ -30,7 +33,7 @@
     "write": {
       "description": "Prose, docs, commit messages, email, README and other writing. No code edits.",
       "mode": "primary",
-      "model": "opencode/ling-3.0-flash-fin-free",
+      "model": "opencode/longcat-2.5-preview-free",
       "temperature": 0.7,
       "permission": { "edit": "ask", "bash": "deny" },
       "prompt": "You are a writing assistant. Produce clear, concrete prose. No filler, no throat-clearing, no bullet lists unless the content is genuinely a list."

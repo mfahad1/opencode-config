@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""Deep-merge a per-machine override onto the shared OpenCode config.
+"""Deep-merge layers onto the shared OpenCode config.
 
-    oc-merge BASE LOCAL OUT
+    oc-merge BASE LAYER... OUT
 
-BASE is the tracked config (opencode.jsonc / opencode.go.jsonc), LOCAL is the
-machine's untracked opencode.local.jsonc, OUT is the generated file that
-OPENCODE_CONFIG points at. Objects merge key-by-key; scalars and arrays in
-LOCAL replace BASE outright.
+BASE is the tracked config (opencode.jsonc / opencode.go.jsonc). Each LAYER is
+merged on top in order: the auto-picked models oc-pick writes, then the
+machine's untracked opencode.local.jsonc, so hand overrides always win. OUT is
+the generated file that OPENCODE_CONFIG points at. Objects merge key-by-key;
+scalars and arrays in a later layer replace earlier ones outright. Missing
+layers are skipped.
 
 Exists because model availability is regional: the same repo has to drive a
 machine where a given free model is geo-blocked without forking the config.
 
-Rewrites OUT only when an input is newer, so it is cheap to call on every
-`opencode` invocation. Exits non-zero and writes nothing on a malformed
-LOCAL, leaving the caller to fall back to BASE.
+Rewrites OUT only when an input is newer or the set of inputs changed (tier
+switch, a layer deleted), so it is cheap to call on every `opencode`
+invocation. A malformed layer is reported and skipped. Exits non-zero and
+writes nothing when no layer applies, leaving the caller to use BASE as-is.
 """
 import json
 import os
@@ -39,26 +42,40 @@ def merge(base, override):
 
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) < 4:
         sys.exit(__doc__)
-    base, local, out = sys.argv[1:4]
+    base, layers, out = sys.argv[1], sys.argv[2:-1], sys.argv[-1]
 
     if not os.path.exists(base):
         print(f"oc-merge: no base config at {base}", file=sys.stderr)
         return 1
-    if not os.path.exists(local):
+    layers = [p for p in layers if os.path.exists(p)]
+    if not layers:
         return 1
 
-    # Up to date already.
-    if os.path.exists(out):
-        newest = max(os.path.getmtime(base), os.path.getmtime(local))
-        if os.path.getmtime(out) >= newest:
+    # Up to date already: same inputs as last time, none modified since.
+    inputs = out + ".inputs"
+    signature = "\n".join([base] + layers) + "\n"
+    if os.path.exists(out) and os.path.exists(inputs):
+        with open(inputs) as fh:
+            same = fh.read() == signature
+        newest = max(os.path.getmtime(p) for p in [base] + layers)
+        if same and os.path.getmtime(out) >= newest:
             return 0
 
     try:
-        merged = merge(load(base), load(local))
+        merged = load(base)
     except (ValueError, OSError) as exc:
-        print(f"oc-merge: {os.path.basename(local)}: {exc}", file=sys.stderr)
+        print(f"oc-merge: {os.path.basename(base)}: {exc}", file=sys.stderr)
+        return 1
+    applied = 0
+    for layer in layers:
+        try:
+            merged = merge(merged, load(layer))
+            applied += 1
+        except (ValueError, OSError) as exc:
+            print(f"oc-merge: ignoring {os.path.basename(layer)}: {exc}", file=sys.stderr)
+    if not applied:
         return 1
 
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
@@ -67,6 +84,8 @@ def main():
         json.dump(merged, fh, indent=2)
         fh.write("\n")
     os.replace(tmp, out)  # atomic: never expose a half-written config
+    with open(inputs, "w") as fh:
+        fh.write(signature)
     return 0
 
 
